@@ -4,7 +4,6 @@ import random
 import string
 import hashlib
 from datetime import datetime, timedelta, timezone
-import os
 
 # Database setup
 DB_NAME = "shortlinks.db"
@@ -128,14 +127,13 @@ def main():
     st.title("🔗 Temporary URL Shortener")
     st.markdown("Create short links that **self‑destruct** after a time limit or number of clicks.")
     
-    # Show deployment info
-    st.info("🌐 **This app is live on Streamlit Cloud** - Share short links with anyone, anywhere!")
-    
-    # Session state to store the generated short URL
-    if 'generated_short_url' not in st.session_state:
-        st.session_state.generated_short_url = None
-    if 'generated_code' not in st.session_state:
-        st.session_state.generated_code = None
+    # Session state to store generated links
+    if 'generated_short_code' not in st.session_state:
+        st.session_state.generated_short_code = None
+    if 'generated_expiry' not in st.session_state:
+        st.session_state.generated_expiry = None
+    if 'generated_clicks' not in st.session_state:
+        st.session_state.generated_clicks = None
     
     # --- Form for creating short links ---
     with st.form("create_short_link"):
@@ -174,131 +172,118 @@ def main():
             store_link(code, long_url, expiry_hours, max_clicks)
             
             # Store in session state
-            st.session_state.generated_code = code
+            st.session_state.generated_short_code = code
+            st.session_state.generated_expiry = expiry_hours
+            st.session_state.generated_clicks = max_clicks
             
             st.success("✅ Short link created successfully!")
-    
-    # Display the generated short link if it exists
-    if st.session_state.generated_code:
-        code = st.session_state.generated_code
-        
-        st.markdown("### 🔗 Your Short Link (Share This):")
-        st.markdown("**The original long URL is completely hidden from recipients**")
-        
-        # Create a container for the short link display
-        col_display, col_copy = st.columns([4, 1])
-        
-        with col_display:
-            # Show the short link in a text input for easy selection
-            short_link_display = st.text_input(
-                "Short link (select and copy with Ctrl+C):",
-                value=f"?code={code}",
-                key="short_link_display",
-                disabled=False,
-                label_visibility="collapsed"
-            )
-        
-        with col_copy:
-            # Simple copy button using st.button
-            if st.button("📋 Copy Full Short Link", key="copy_main_btn", use_container_width=True):
-                # Use st.write to show the link to copy
-                st.markdown("---")
-                st.info("**Copy this full URL:**")
-                st.code(f"https://{st.get_option('browser.serverAddress')}/?code={code}", language="text")
-                st.success("✅ **Full URL is shown above - select it and press Ctrl+C!**")
-        
-        # Show the full URL in a code block for easy copying
-        st.markdown("### Full URL to share:")
-        
-        # Try to get the actual deployed URL
-        try:
-            # This works on Streamlit Cloud
-            from urllib.parse import urlparse
-            import requests
-            
-            # Get the current URL from the browser
-            full_short_url = f"?code={code}"
-            st.code(full_short_url, language="text")
-            st.caption("📝 **Note:** When deployed on Streamlit Cloud, this becomes:")
-            st.caption(f"`https://{st.get_option('browser.serverAddress')}/?code={code}`")
-        except:
-            st.code(f"?code={code}", language="text")
-        
-        # Alternative copy method using st.code's built-in copy button
-        st.markdown("### 💡 Easy Copy Method:")
-        st.markdown("The code block above has a **copy button** in the top-right corner (📋) - click it to copy!")
-        
-        # Display link details
-        st.info(f"""
-        **📊 Link Details:**
-        - **Short Code:** `{code}`
-        - **Expires:** {expiry_hours} hours {'(never)' if expiry_hours == 0 else ''}
-        - **Max Clicks:** {max_clicks}
-        - **Original URL is completely hidden** from recipients
-        """)
-        
-        # Add a reset button to clear the current short link
-        if st.button("🔄 Create Another Short Link", use_container_width=True):
-            st.session_state.generated_code = None
             st.rerun()
     
-    # --- Display active links for management ---
-    with st.expander("📋 Manage Active Short Links", expanded=False):
-        conn = sqlite3.connect(DB_NAME)
-        rows = conn.execute("SELECT code, long_url, expires_at, max_clicks, click_count, created_at FROM links ORDER BY created_at DESC LIMIT 50").fetchall()
-        conn.close()
+    # Display the generated short link if it exists
+    if st.session_state.generated_short_code:
+        code = st.session_state.generated_short_code
         
-        if rows:
-            st.markdown("**Your active short links:**")
-            for row in rows:
-                code, long_url, expires_at, max_clicks, clicks, created_at = row
-                
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-                with col1:
-                    st.markdown(f"**Code:** `{code}`")
-                    st.caption(f"Original: `{long_url[:50]}...`")
-                    st.caption(f"Clicks: {clicks}/{max_clicks} | Expires: {expires_at[:10] if expires_at else 'Never'}")
-                
-                with col2:
-                    # Copy button for this specific link
-                    if st.button(f"📋 Copy", key=f"copy_{code}"):
-                        st.markdown(f"""
-                        <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin:10px 0;">
-                            <b>Copy this URL:</b><br/>
-                            <code>?code={code}</code>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.info(f"📋 **Copy this full URL:** `?code={code}`")
-                
-                with col3:
-                    # Test button
-                    if st.button(f"🔗 Test", key=f"test_{code}"):
-                        st.markdown(f"[Click to test](?code={code})", unsafe_allow_html=True)
-                        st.info(f"🔗 **Test link:** `?code={code}`")
-                
-                with col4:
-                    # Delete button
-                    if st.button(f"🗑️ Delete", key=f"del_{code}"):
-                        conn = sqlite3.connect(DB_NAME)
-                        conn.execute("DELETE FROM links WHERE code = ?", (code,))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-                
-                st.markdown("---")
-        else:
-            st.write("No active short links yet. Create your first one above!")
-    
-    # Footer with instructions
-    st.markdown("---")
-    st.markdown("### 📖 How to Use:")
-    st.markdown("""
-    1. **Create a short link** by entering your long file URL above
-    2. **Copy the short link** using the code block's copy button (📋 in top-right corner)
-    3. **Share only the short link** with others - they will never see your original URL
-    4. **Links expire automatically** after the set time or number of clicks
-    """)
-    st.caption("🔒 Your original long URLs are never exposed to recipients.")
+        st.markdown("---")
+        st.markdown("## 🔗 Your Short Link Is Ready!")
+        st.markdown("**The original long URL is completely hidden from recipients**")
+        
+        # Display the short code prominently
+        st.markdown("### Short Code:")
+        st.markdown(f"# `{code}`")
+        
+        # Method 1: st.code with built-in copy button (THIS WORKS!)
+        st.markdown("### 📋 Copy this entire URL:")
+        full_short_url = f"?code={code}"
+        st.code(full_short_url, language="text")
+        st.caption("💡 **Click the copy icon (📋) in the top-right corner of the box above**")
+        
+        # Method 2: Text input for manual selection
+        st.markdown("### Or manually copy:")
+        st.text_input(
+            "Select all text below and press Ctrl+C (or Cmd+C on Mac):",
+            value=full_short_url,
+            key="manual_copy_url",
+            disabled=False
+        )
+        
+        # Method 3: Display as clickable link
+        st.markdown("### Preview (click to test):")
+        st.markdown(f"[{full_short_url}]({full_short_url})")
+        
+        # Show what the full URL will look like when deployed
+        st.info(f"""
+        **📌 When deployed on Streamlit Cloud, the full URL will be:**
+https://your-app.streamlit.app/?code={code}
+
+text
+
+**📊 Link Details:**
+- **Short Code:** `{code}`
+- **Expires:** {st.session_state.generated_expiry} hours {'(never)' if st.session_state.generated_expiry == 0 else ''}
+- **Max Clicks:** {st.session_state.generated_clicks}
+- **Original URL is completely hidden** from recipients
+""")
+
+# Reset button
+col_reset1, col_reset2, col_reset3 = st.columns([1, 2, 1])
+with col_reset2:
+    if st.button("🔄 Create Another Short Link", use_container_width=True):
+        st.session_state.generated_short_code = None
+        st.rerun()
+
+st.markdown("---")
+
+# --- Display active links for management ---
+with st.expander("📋 Manage Active Short Links", expanded=False):
+conn = sqlite3.connect(DB_NAME)
+rows = conn.execute("SELECT code, long_url, expires_at, max_clicks, click_count, created_at FROM links ORDER BY created_at DESC LIMIT 50").fetchall()
+conn.close()
+
+if rows:
+    for row in rows:
+        code, long_url, expires_at, max_clicks, clicks, created_at = row
+        
+        with st.container():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            
+            with col1:
+                st.markdown(f"**Code:** `{code}`")
+                st.caption(f"Original: `{long_url[:60]}...`")
+                st.caption(f"Clicks: {clicks}/{max_clicks} | Expires: {expires_at[:10] if expires_at else 'Never'}")
+            
+            with col2:
+                # Copy button for this specific link using st.code
+                if st.button(f"📋 Get Link", key=f"get_{code}"):
+                    st.code(f"?code={code}", language="text")
+                    st.info(f"**Copy the URL above** (click the 📋 icon)")
+            
+            with col3:
+                if st.button(f"🗑️ Delete", key=f"del_{code}"):
+                    conn = sqlite3.connect(DB_NAME)
+                    conn.execute("DELETE FROM links WHERE code = ?", (code,))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+            
+            st.markdown("---")
+else:
+    st.info("No active short links yet. Create your first one above!")
+
+# Footer with instructions
+st.markdown("---")
+st.markdown("### 📖 Quick Start Guide:")
+col1, col2, col3 = st.columns(3)
+with col1:
+st.markdown("**1️⃣ Create**")
+st.markdown("Enter your long URL and set expiry/clicks")
+with col2:
+st.markdown("**2️⃣ Copy**")
+st.markdown("Click the 📋 icon in the code box")
+with col3:
+st.markdown("**3️⃣ Share**")
+st.markdown("Send the short link to others")
+
+st.caption("🔒 Your original long URLs are never exposed to recipients. Links self-destruct automatically.")
 
 if __name__ == "__main__":
-    main()
+main()
